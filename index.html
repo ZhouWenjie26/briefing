@@ -463,7 +463,7 @@
   var SIGC = {"强烈加仓":"#1b7f3b","加仓":"#2e9e5b","正常定投":"#4a6fa5","暂缓/观望":"#c98a00","减仓":"#d0631b","强烈卖出":"#b42318"};
   function marks(s){return esc(s).replace(/[\[【](分析|风险|待证|事实|单源)[\]】]/g,function(m,w){var c={分析:"c-analysis",风险:"c-risk",待证:"c-watch",单源:"c-watch",事实:"c-fact"}[w];return '<span class="chip '+c+'">'+w+'</span>';});}
   var SIGW = {"强烈加仓":2,"加仓":1.5,"正常定投":1,"暂缓/观望":0.5,"减仓":0,"强烈卖出":0};
-  var GROUPS = [["us","美股指数"],["etf","美股 ETF（含比特币、黄金 ETF）"],["cn","A 股指数"],["hk","港股"],["jp","日本"],["cmd","大宗商品"],["crypto","加密资产"],["macro","利率 · 汇率 · 波动率"]];
+  var GROUPS = [["us","美股指数"],["etf","美股 ETF（含比特币、黄金 ETF）"],["cn","A 股指数"],["hk","港股"],["jp","日本"],["cmd","大宗商品"],["crypto","加密资产"],["macro","利率 · 汇率 · 波动率"],["unc","不确定性指数（EPU / GPR）"]];
   var LEVEL_ONLY = {us10y:1, vix:1, usdjpy:1, usdcny:1};
   var FUNDKEY = [["Fidelity.*标普|^标普\\s*500（Fidelity","fFID-SPX"],["Fidelity.*纳斯达克|^纳斯达克.*（Fidelity","fFID-NDX"],["富国全球科技","f022184"],["纳斯达克\\s*100","f018044"],["全球成长","f012920"],["日本精选","f019449"],["天然资源","f019578"],["2000","f019924"],["1000","f017095"],["科鑫","f022755"],["央企","f007793"]];
   function normSig(s){
@@ -508,8 +508,9 @@
     return {last:last,date:s[n-1][0],d1:pctFrom(last,at(1)),w1:pctFrom(last,at(isCrypto?7:5)),m1:pctFrom(last,at(isCrypto?30:21)),m3:pctFrom(last,at(isCrypto?91:63)),y1:pctFrom(last,at(per)),ytd:pctFrom(last,ytdBase),
       hi:hi,lo:lo,fromHi:pctFrom(last,hi),fromLo:pctFrom(last,lo),rsi:rsi,vol:vol,ma50:ma50,ma200:ma200,vsMa200:pctFrom(last,ma200),mdd:mdd};
   }
-  function readout(id,st){
+  function readout(id,st,a){
     if(!st)return "";
+    if(a&&a.group==="unc")return '<span class="k">水平：</span>'+fmt(st.last)+'，处于过去 10 年的 <b>'+a.pctl10y+'%</b> 分位'+(a.pctl10y>=90?'（偏高：策略实验室 v2 里这类状态规则会触发）':a.pctl10y<=10?'（偏低）':'')+'。'+(a.freq==="m"?'月度指数，编制方约晚 1–2 个月发布。':'日度指数，这里用 30 日均值。')+'<br><span class="k">怎么用：</span>文献认为它更像风险状态信号；登记检验显示用它调整定投金额没有改善期末财富，所以只作参考。';
     if(id==="vix")return '<span class="k">水平：</span>'+(st.last>=30?"恐慌（≥30）":st.last>=20?"紧张（20–30）":st.last>=15?"正常（15–20）":"平静（<15）")+'；52 周区间 '+fmt(st.lo)+'–'+fmt(st.hi)+'。';
     if(LEVEL_ONLY[id])return '<span class="k">水平：</span>距 52 周高点 '+pc(st.fromHi)+'，距低点 '+pc(st.fromLo)+'；相对 200 日均线 '+pc(st.vsMa200)+'。';
     var trend = st.ma200==null?"数据不足": (st.last>st.ma200&&st.ma50>st.ma200)?"上升趋势（价在 200 日线上、50 日线在 200 日线上）": (st.last<st.ma200&&st.ma50<st.ma200)?"下降趋势（价在 200 日线下、50 日线在 200 日线下）":"震荡/转折（均线信号不一致）";
@@ -620,6 +621,11 @@
         return '<tr><td>'+esc(x.strategy+' '+x.name)+'</td><td>'+pc(x.pooledMean5)+'</td><td>'+pc(x.pooledMean3)+'</td><td>'+x.ciLowPos+' / '+x.nIndex+'</td><td>'+x.holmSig+' / '+x.nIndex+'</td><td>'+x.posIndex+' / '+x.nIndex+'</td><td>'+(x.holdoutMean==null?'—':pc(x.holdoutMean))+'</td><td>'+yn(x.adopt)+'</td></tr>';}).join("")+'</table></div>';
       h+='<details><summary style="cursor:pointer;color:var(--accent);font-size:13px">展开各指数明细（'+LAB.rows.length+' 个检验）</summary><div class="ftab-wrap" style="margin-top:8px"><table class="ftab"><tr><th>指数</th><th>规则</th><th>起始</th><th>5 年平均</th><th>中位数</th><th>为正比例</th><th>最差 5%</th><th>重抽样区间</th><th>安慰剂 p</th><th>校正后 p</th><th>三段平均</th><th>备用金占比</th></tr>'+LAB.rows.map(function(r){
         return '<tr><td>'+esc(r.indexName)+'</td><td>'+esc(r.strategy)+'</td><td>'+esc(String(r.from).slice(0,7))+'</td><td>'+pc(r.mean5)+'</td><td>'+pc(r.median5)+'</td><td>'+p2(r.pos5)+'%</td><td>'+pc(r.p5)+'</td><td>'+(r.ci?p2(r.ci[0])+' ~ '+p2(r.ci[1]):'—')+'</td><td>'+p2(r.placeboP)+'</td><td>'+p2(r.holmP)+'</td><td>'+r.thirds.map(p2).join(' / ')+'</td><td>'+p2(r.poolShare)+'%</td></tr>';}).join("")+'</table></div></details>';
+      if(LAB.v2){var V=LAB.v2, ad2=V.summary.filter(function(x){return x.adopt;});
+        h+='<div class="row" style="margin-top:12px"><b>补充检验 v2 · 经济政策不确定性（EPU）与地缘政治风险（GPR）：</b>'+(ad2.length?'达到采纳条件：'+ad2.map(function(x){return esc(x.name);}).join('、'):'3 条规则都没有达到采纳条件。')+'美股、日股用本国 EPU，A 股用中国 EPU，GPR 为全球指数；日度指数取 30 日均值并滞后 7 天，月度指数滞后到次次月才可用；各指数前 3 年为预热期。</div>';
+        h+='<div class="ftab-wrap"><table class="ftab"><tr><th>规则</th><th>5 年期末财富差</th><th>3 年</th><th>区间下界 &gt; 0</th><th>校正后显著</th><th>方向为正</th><th>基金留出</th><th>采纳</th></tr>'+V.summary.map(function(x){return '<tr><td>'+esc(x.strategy+' '+x.name)+'</td><td>'+pc(x.pooledMean5)+'</td><td>'+pc(x.pooledMean3)+'</td><td>'+x.ciLowPos+' / '+x.nIndex+'</td><td>'+x.holmSig+' / '+x.nIndex+'</td><td>'+x.posIndex+' / '+x.nIndex+'</td><td>'+(x.holdoutMean==null?'—':pc(x.holdoutMean))+'</td><td>'+yn(x.adopt)+'</td></tr>';}).join('')+'</table></div>';
+        h+='<details><summary style="cursor:pointer;color:var(--accent);font-size:13px">展开 v2 各指数明细（'+V.rows.length+' 个检验）</summary><div class="ftab-wrap" style="margin-top:8px"><table class="ftab"><tr><th>指数</th><th>规则</th><th>所用序列</th><th>起始</th><th>5 年平均</th><th>重抽样区间</th><th>安慰剂 p</th><th>校正后 p</th><th>备用金占比</th></tr>'+V.rows.map(function(r){return '<tr><td>'+esc(r.indexName)+'</td><td>'+esc(r.strategy)+'</td><td>'+esc(r.strategy==="S10"?"全球 GPR":r.epu)+'</td><td>'+esc(String(r.from).slice(0,7))+'</td><td>'+pc(r.mean5)+'</td><td>'+(r.ci?p2(r.ci[0])+' ~ '+p2(r.ci[1]):'—')+'</td><td>'+p2(r.placeboP)+'</td><td>'+p2(r.holmP)+'</td><td>'+p2(r.poolShare)+'%</td></tr>';}).join('')+'</table></div></details>';
+      }
       h+='<div class="row" style="margin-top:10px"><b>简报主观信号（S7）：</b>从 2026-06-15 起按同一套记账规则，'+LAB.s7.length+' 只基金的期末财富平均比普通定投 '+pc(LAB.s7Mean)+'，但安慰剂检验没有一只显著（最小 p = '+p2(Math.min.apply(null,LAB.s7.map(function(x){return x.p;})))+'）。这段时间市场以下跌为主，「暂缓」时留着现金本身就占便宜，把同样的信号错开时间也能得到类似结果，所以<b>尚无证据表明主观信号有择时能力</b>。</div>';
       h+='<div class="ftab-wrap"><table class="ftab"><tr><th>基金</th><th>周数</th><th>期末财富差</th><th>备用金占比</th><th>安慰剂 p</th></tr>'+LAB.s7.map(function(x){return '<tr><td>'+esc(x.name)+'</td><td>'+x.weeks+'</td><td>'+pc(x.delta)+'</td><td>'+p2(x.poolShare)+'%</td><td>'+p2(x.p)+'</td></tr>';}).join("")+'</table></div>';
       h+='<div class="note">方法：每周到账 1 份钱进备用金池，按规则倍数（0.5–2 倍）买入，多买只能用池里的钱，池内按年化 2% 计息；比较「同样现金流下的期末总财富」。指数为价格指数（不含分红），标普 500 和日经自 1970 年、纳斯达克 100 自 1985 年、沪深 300 和中证 1000 自 2005 年、中证 2000 自 2014 年。安慰剂 = 把同一串倍数整体错开时间；重抽样 = '+LAB.boot+' 条分段重抽样路径；p 值做了 Holm 多重检验校正。规则、参数和采纳条件在运行前已登记（'+esc(LAB.protocol)+'）。已知局限：重抽样会打散长周期的均值回归，区间偏保守；未计申购费和限购。生成时间 '+esc(String(LAB.generated).slice(0,10))+'。</div></div>';
@@ -632,8 +638,9 @@
     // 2. overview
     h+=secH("市场总览","Market Overview");
     h+='<div class="ftab-wrap"><table class="ftab"><tr><th>品种</th><th>最新</th><th>日期</th><th>1 日</th><th>1 周</th><th>1 月</th><th>3 月</th><th>今年</th><th>距 52 周高</th><th>RSI</th></tr>';
-    GROUPS.forEach(function(gp){h+='<tr class="grp"><td colspan="10">'+esc(gp[1])+'</td></tr>';
+    GROUPS.filter(function(gp){return gp[0]!=="unc";}).forEach(function(gp){h+='<tr class="grp"><td colspan="10">'+esc(gp[1])+'</td></tr>';
       M.assets.filter(function(a){return a.group===gp[0];}).forEach(function(a){var st=a.st||{};
+        if(a.group==="unc")return;
         h+='<tr data-goto="fin-'+a.id+'"><td>'+esc(a.name)+'</td><td>'+fmt(st.last)+'</td><td>'+esc((st.date||"").slice(5))+'</td><td>'+pc(st.d1)+'</td><td>'+pc(st.w1)+'</td><td>'+pc(st.m1)+'</td><td>'+pc(st.m3)+'</td><td>'+pc(st.ytd)+'</td><td>'+pc(st.fromHi)+'</td><td>'+(st.rsi!=null?st.rsi.toFixed(0):'—')+'</td></tr>';});});
     h+='</table></div>';
     // 3. risk gauge
@@ -644,7 +651,8 @@
       (tnx?'<div><span>美 10 年期</span>'+fmt(tnx.last)+'%（1 月 '+(tnx.m1!=null?(tnx.m1>0?"+":"")+(tnx.last-tnx.last/(1+tnx.m1/100)).toFixed(2):"—")+' 个百分点）</div>':'')+
       (jpy?'<div><span>美元/日元</span>'+fmt(jpy.last)+(jpy.last>=160?' · 干预线':'')+'</div>':'')+
       (btc?'<div><span>比特币距高点</span>'+pc(btc.fromHi)+'</div>':'')+
-      M.assets.filter(function(a){return !LEVEL_ONLY[a.id]&&a.st&&a.st.fromHi<=-20;}).map(function(a){return '<div><span>'+esc(a.name)+' 回撤</span>'+pc(a.st.fromHi)+'</div>';}).join("")+
+      M.assets.filter(function(a){return a.group==="unc"&&/us_epu_d|gpr_d|cn_epu_m|jp_epu_m/.test(a.id);}).map(function(a){return '<div><span>'+esc(a.name)+'</span>'+fmt(a.st&&a.st.last)+' · 10 年 '+a.pctl10y+'% 分位</div>';}).join("")+
+      M.assets.filter(function(a){return !LEVEL_ONLY[a.id]&&a.group!=="unc"&&a.st&&a.st.fromHi<=-20;}).map(function(a){return '<div><span>'+esc(a.name)+' 回撤</span>'+pc(a.st.fromHi)+'</div>';}).join("")+
       '</div><div class="note">回撤 ≥ 20% 的品种自动列出。各市场的风险提示见下方每组的「最新研判」。</div></div>';
     // 4. per group charts
     GROUPS.forEach(function(gp){
@@ -653,8 +661,9 @@
       h+=marketBlurb(gp[0]);
       list.forEach(function(a){var st=a.st;
         h+='<div class="card fcard" id="fin-'+a.id+'"><h3>'+esc(a.name)+'<span class="px">'+fmt(st&&st.last)+'</span><span class="note">'+esc(a.unit)+' · '+esc(st?st.date:"")+' · 1 日 </span>'+(st?pc(st.d1):"")+'</h3>';
-        h+=chartSVG(a.id,a.series,{ma:!LEVEL_ONLY[a.id]||a.id==="usdjpy"});
-        if(st)h+='<div class="fstats"><div><span>近 1 月</span>'+pc(st.m1)+'</div><div><span>近 3 月</span>'+pc(st.m3)+'</div><div><span>今年以来</span>'+pc(st.ytd)+'</div><div><span>近 1 年</span>'+pc(st.y1)+'</div><div><span>52 周高 / 低</span>'+fmt(st.hi)+' / '+fmt(st.lo)+'</div><div><span>相对 200 日线</span>'+pc(st.vsMa200)+'</div><div><span>20 日年化波动</span>'+(st.vol!=null?st.vol.toFixed(1)+'%':'—')+'</div><div><span>RSI(14)</span>'+(st.rsi!=null?st.rsi.toFixed(0):'—')+'</div></div><div class="readout">'+readout(a.id,st)+'</div>';
+        h+=chartSVG(a.id,a.series,{ma:a.group!=="unc"&&(!LEVEL_ONLY[a.id]||a.id==="usdjpy")});
+        if(st&&a.group==="unc")h+='<div class="readout">'+readout(a.id,st,a)+'</div>';
+        else if(st)h+='<div class="fstats"><div><span>近 1 月</span>'+pc(st.m1)+'</div><div><span>近 3 月</span>'+pc(st.m3)+'</div><div><span>今年以来</span>'+pc(st.ytd)+'</div><div><span>近 1 年</span>'+pc(st.y1)+'</div><div><span>52 周高 / 低</span>'+fmt(st.hi)+' / '+fmt(st.lo)+'</div><div><span>相对 200 日线</span>'+pc(st.vsMa200)+'</div><div><span>20 日年化波动</span>'+(st.vol!=null?st.vol.toFixed(1)+'%':'—')+'</div><div><span>RSI(14)</span>'+(st.rsi!=null?st.rsi.toFixed(0):'—')+'</div></div><div class="readout">'+readout(a.id,st)+'</div>';
         h+='<div class="note">来源：'+esc(a.src)+'（'+esc(a.symbol)+'）</div></div>';
       });
     });
