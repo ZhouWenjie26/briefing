@@ -660,7 +660,7 @@
       h+=secH(gp[1],"");
       h+=marketBlurb(gp[0]);
       list.forEach(function(a){var st=a.st;
-        h+='<div class="card fcard" id="fin-'+a.id+'"><h3>'+esc(a.name)+'<span class="px">'+fmt(st&&st.last)+'</span><span class="note">'+esc(a.unit)+' · '+esc(st?st.date:"")+' · 1 日 </span>'+(st?pc(st.d1):"")+'</h3>';
+        h+='<div class="card fcard" id="fin-'+a.id+'"><h3>'+esc(a.name)+'<span class="px">'+fmt(st&&st.last)+'</span><span class="note">'+esc(a.unit)+' · '+esc(st?(a.freq==="m"?st.date.slice(0,7)+" 月":st.date):"")+(a.group==="unc"?"":" · 1 日 ")+'</span>'+(st&&a.group!=="unc"?pc(st.d1):"")+'</h3>';
         h+=chartSVG(a.id,a.series,{ma:a.group!=="unc"&&(!LEVEL_ONLY[a.id]||a.id==="usdjpy")});
         if(st&&a.group==="unc")h+='<div class="readout">'+readout(a.id,st,a)+'</div>';
         else if(st)h+='<div class="fstats"><div><span>近 1 月</span>'+pc(st.m1)+'</div><div><span>近 3 月</span>'+pc(st.m3)+'</div><div><span>今年以来</span>'+pc(st.ytd)+'</div><div><span>近 1 年</span>'+pc(st.y1)+'</div><div><span>52 周高 / 低</span>'+fmt(st.hi)+' / '+fmt(st.lo)+'</div><div><span>相对 200 日线</span>'+pc(st.vsMa200)+'</div><div><span>20 日年化波动</span>'+(st.vol!=null?st.vol.toFixed(1)+'%':'—')+'</div><div><span>RSI(14)</span>'+(st.rsi!=null?st.rsi.toFixed(0):'—')+'</div></div><div class="readout">'+readout(a.id,st)+'</div>';
