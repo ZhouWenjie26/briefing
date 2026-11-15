@@ -285,7 +285,7 @@
     if(s&&s.news){
       h+=secH("国内外要闻","News · 科技 + 政治");
       (s.news.headlines||[]).forEach(function(n){
-        h+='<div class="card"><h3>'+chip(n.tag)+hl(n.title)+(n.threadId?' <a href="#" data-thread="'+esc(n.threadId)+'" style="font-size:12px">🔗线索</a>':"")+'</h3>';
+        h+='<div class="card"><h3>'+chip(n.tag)+catChip(threadById[n.threadId]||(n.category?{category:n.category}:null))+hl(n.title)+(n.threadId?' <a href="#" data-thread="'+esc(n.threadId)+'" style="font-size:12px">🔗线索</a>':"")+'</h3>';
         if(n.what)h+='<div class="row"><b>发生了什么</b>'+hl(n.what)+'</div>';
         if(n.facts)h+='<div class="row"><b>关键事实</b>'+hl(n.facts)+'</div>';
         if(n.why)h+='<div class="row"><b>为什么重要</b>'+hl(n.why)+'</div>';
@@ -359,31 +359,73 @@
     return '<div class="paper"><div class="pt"><span class="venue '+venueClass(p.type)+'">'+esc(p.venue)+'</span>'+hl(p.title)+(isNew?'<span class="badge-new">NEW</span>':"")+firstNote+'</div>'+
       '<div class="meta">'+esc(p.authors||"")+' · '+esc(p.access||"")+'</div>'+
       (p.note?'<div class="row" style="font-size:14px">'+hl(p.note)+'</div>':"")+
+      ((p.area||(p.tags||[]).length)?'<div class="row" style="font-size:12px">'+(p.area?'<span class="chip c-academic">'+esc(TXL("paperArea",p.area))+'</span>':'')+(p.tags||[]).filter(function(t){return !/^类型\//.test(t);}).map(function(t){return '<a href="#" data-ptag="'+esc(t)+'" class="chip c-watch" style="text-decoration:none">'+esc(t.split("/")[1].split(" ")[0])+'</a>';}).join("")+'</div>':'')+
       '<div class="links">'+links.join("")+'</div></div>';
   }
 
+  // ---- classification (taxonomy lives in D.meta.taxonomy) ----
+  var TX=(D.meta&&D.meta.taxonomy)||{};
+  var TXL=function(group,key){var g=(TX[group]||{})[key]; return g?String(g).split(" — ")[0]:key;};
+  var F={p:{area:"",type:"",read:"",tag:""}, t:{cat:"",region:"",act:"active",fin:""}};
+  var TYPEL={journal:"期刊",conference:"会议",preprint:"预印本",report:"报告"};
+  function readStatus(p){var a=String(p.access||""); return /仅摘要|待取|付费|未读|paywall/i.test(a)&&!/已读全文|通读|已下载/.test(a)?"abstract":"full";}
+  function lastDate(t){var h=t.history||[];var m="";h.forEach(function(e){if(e.date>m)m=e.date;});return m;}
+  var LATEST=(byDateDesc[0]||{}).date||"";
+  function daysBetween(a,b){return Math.round((Date.parse(b)-Date.parse(a))/864e5);}
+  function isActive(t){var l=lastDate(t);return l&&daysBetween(l,LATEST)<=14;}
+  function fchips(scope,key,items,cur,counts){
+    return items.map(function(it){var on=cur===it[0];return '<button class="rbtn'+(on?" on":"")+'" data-f="'+scope+'|'+key+'|'+esc(it[0])+'">'+esc(it[1])+(counts&&counts[it[0]]!=null?' <span style="opacity:.7">'+counts[it[0]]+'</span>':'')+'</button>';}).join("");
+  }
+  function countBy(arr,fn){var c={"":arr.length};arr.forEach(function(x){var k=fn(x);[].concat(k).forEach(function(kk){if(kk)c[kk]=(c[kk]||0)+1;});});return c;}
+  function catChip(t){return t&&t.category?'<span class="chip c-academic" title="'+esc(TXL("threadCategory",t.category))+'">'+esc(TXL("threadCategory",t.category))+'</span>':'';}
+
   function renderPapers(){
-    var groups={}; (D.papers||[]).forEach(function(p){(groups[p.topic]=groups[p.topic]||[]).push(p);});
+    var P=D.papers||[], f=F.p;
+    var pass=function(p,skip){return (skip==="area"||!f.area||p.area===f.area)&&(skip==="type"||!f.type||p.type===f.type)&&(skip==="read"||!f.read||readStatus(p)===f.read)&&(skip==="tag"||!f.tag||(p.tags||[]).indexOf(f.tag)>=0);};
+    var list=P.filter(function(p){return pass(p);});
+    var areas=Object.keys(TX.paperArea||{}).map(function(k){return [k,TXL("paperArea",k)];});
     var h=secH("论文库","Paper Library — 全局去重，永不重复推荐")+
-      '<div class="row" style="color:var(--muted);margin-bottom:14px">共 '+(D.papers||[]).length+' 篇。每篇仅登记一次；每日学术板块引用其 id，不再重复推荐。点击直达原文/DOI/代码。</div>';
-    Object.keys(groups).forEach(function(topic){
-      h+='<div class="sec-h" style="border-color:var(--accent)"><h2 style="font-size:18px">'+esc(topic)+'</h2></div>';
-      groups[topic].sort(function(a,b){return (a.firstSeen<b.firstSeen)?1:-1;}).forEach(function(p){h+=paperCard(p,false,null);});
+      '<div class="row" style="color:var(--muted);margin-bottom:8px">共 '+P.length+' 篇，当前显示 '+list.length+' 篇。每篇仅登记一次；标签与 Zotero 受控词表一致。</div>';
+    h+='<div class="fin-tools"><span class="lab">方向</span>'+fchips("p","area",[["","全部"]].concat(areas),f.area,countBy(P.filter(function(p){return pass(p,"area");}),function(p){return p.area;}))+'</div>';
+    h+='<div class="fin-tools"><span class="lab">类型</span>'+fchips("p","type",[["","全部"],["journal","期刊"],["conference","会议"],["preprint","预印本"],["report","报告"]],f.type,countBy(P.filter(function(p){return pass(p,"type");}),function(p){return p.type;}))+
+      '<span class="lab" style="margin-left:10px">全文</span>'+fchips("p","read",[["","全部"],["full","已读全文"],["abstract","仅摘要/待取"]],f.read,countBy(P.filter(function(p){return pass(p,"read");}),readStatus))+'</div>';
+    var tc=countBy(P.filter(function(p){return pass(p,"tag");}),function(p){return (p.tags||[]).filter(function(t){return !/^类型\//.test(t);});}); delete tc[""];
+    var facets={}; Object.keys(tc).forEach(function(t){var fa=t.split("/")[0];(facets[fa]=facets[fa]||[]).push(t);});
+    h+='<div class="fin-tools"><span class="lab">标签</span><select class="railsel" style="max-width:420px" data-fsel="p|tag"><option value="">全部标签</option>'+
+      ["主题","方法","领域"].filter(function(fa){return facets[fa];}).map(function(fa){return '<optgroup label="'+fa+'">'+facets[fa].sort(function(a,b){return tc[b]-tc[a];}).map(function(t){return '<option value="'+esc(t)+'"'+(f.tag===t?" selected":"")+'>'+esc(t.split("/")[1].split(" ")[0])+'（'+tc[t]+'）</option>';}).join("")+'</optgroup>';}).join("")+'</select>'+
+      (f.area||f.type||f.read||f.tag?'<button class="rbtn" data-freset="p">清除筛选</button>':'')+'</div>';
+    var groups={}; list.forEach(function(p){var k=f.area?"":(p.area||"other");(groups[k]=groups[k]||[]).push(p);});
+    Object.keys(groups).sort(function(a,b){return groups[b].length-groups[a].length;}).forEach(function(k){
+      if(k)h+='<div class="sec-h" style="border-color:var(--accent)"><h2 style="font-size:18px">'+esc(TXL("paperArea",k))+'</h2><span class="en">'+groups[k].length+' 篇</span></div>';
+      groups[k].sort(function(a,b){return (a.firstSeen<b.firstSeen)?1:-1;}).forEach(function(p){h+=paperCard(p,false,null);});
     });
+    if(!list.length)h+='<div class="empty">没有符合条件的论文</div>';
     document.getElementById("view").innerHTML=h;
   }
 
   function renderThreads(){
-    var h=secH("追踪线索","Thread Tracking — 后续发展时间线");
-    (D.threads||[]).forEach(function(t){
-      h+='<div class="card" id="th-'+esc(t.id)+'"><h3>'+hl(t.title)+' <span class="status '+esc(t.status)+'">'+esc(t.status)+'</span></h3>';
+    var T=D.threads||[], f=F.t;
+    var pass=function(t,skip){return (skip==="cat"||!f.cat||t.category===f.cat)&&(skip==="region"||!f.region||t.region===f.region)&&(skip==="act"||!f.act||(f.act==="active")===isActive(t))&&(skip==="fin"||!f.fin||(t.fin&&(f.fin==="any"||(t.fin.market||[]).indexOf(f.fin)>=0)));};
+    var list=T.filter(function(t){return pass(t);}).sort(function(a,b){return lastDate(a)<lastDate(b)?1:-1;});
+    var cats=Object.keys(TX.threadCategory||{}).map(function(k){return [k,TXL("threadCategory",k)];});
+    var regs=Object.keys(TX.threadRegion||{}).map(function(k){return [k,TXL("threadRegion",k)];});
+    var fm=((TX.threadFin||{}).market||[]).map(function(m){return [m,m];});
+    var h=secH("追踪线索","Thread Tracking — 后续发展时间线")+'<div class="row" style="color:var(--muted);margin-bottom:8px">共 '+T.length+' 条，当前显示 '+list.length+' 条；「活跃」= 最近 14 天内有更新（以 '+esc(LATEST)+' 为准）。</div>';
+    h+='<div class="fin-tools"><span class="lab">状态</span>'+fchips("t","act",[["active","活跃"],["dormant","沉寂"],["","全部"]],f.act,null)+'</div>';
+    h+='<div class="fin-tools"><span class="lab">领域</span>'+fchips("t","cat",[["","全部"]].concat(cats),f.cat,countBy(T.filter(function(t){return pass(t,"cat");}),function(t){return t.category;}))+'</div>';
+    h+='<div class="fin-tools"><span class="lab">地区</span>'+fchips("t","region",[["","全部"]].concat(regs),f.region,countBy(T.filter(function(t){return pass(t,"region");}),function(t){return t.region;}))+'</div>';
+    h+='<div class="fin-tools"><span class="lab">财经</span>'+fchips("t","fin",[["","不限"],["any","所有财经相关"]].concat(fm),f.fin,countBy(T.filter(function(t){return pass(t,"fin");}),function(t){return t.fin?["any"].concat(t.fin.market||[]):[];}))+
+      (f.cat||f.region||f.fin||f.act!=="active"?'<button class="rbtn" data-freset="t">清除筛选</button>':'')+'</div>';
+    list.forEach(function(t){
+      var hs=(t.history||[]).slice().sort(function(a,b){return a.date<b.date?1:-1;}), last=hs[0]||{};
+      h+='<div class="card" id="th-'+esc(t.id)+'"><h3>'+catChip(t)+'<span class="chip c-watch">'+esc(TXL("threadRegion",t.region||""))+'</span>'+(t.fin?'<span class="chip c-analysis" title="'+esc(t.fin.event||"")+'">财经 · '+esc((t.fin.market||[]).join("/"))+'</span>':'')+'<span style="color:var(--muted);font-size:12px">'+esc(t.id)+'</span> '+hl(t.title)+'</h3>';
+      h+='<div class="row"><span class="status">'+esc(t.status||"")+'</span></div>';
       if(t.nextWatch)h+='<div class="row"><b>下一步关注</b>'+esc(t.nextWatch)+'</div>';
-      h+='<div class="tl" style="margin-top:10px">';
-      (t.history||[]).slice().sort(function(a,b){return a.date<b.date?1:-1;}).forEach(function(e){
-        h+='<div class="ev"><div class="d">'+esc(e.date)+'</div><div>'+hl(e.note)+'</div>'+sources(e.sources)+'</div>';
-      });
-      h+='</div></div>';
+      if(last.note)h+='<div class="row"><b>'+esc(last.date)+'</b>'+hl(last.note)+'</div>'+sources(last.sources);
+      if(hs.length>1)h+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent);font-size:13px">展开全部 '+hs.length+' 条时间线</summary><div class="tl" style="margin-top:10px">'+hs.slice(1).map(function(e){return '<div class="ev"><div class="d">'+esc(e.date)+'</div><div>'+hl(e.note)+'</div>'+sources(e.sources)+'</div>';}).join("")+'</div></details>';
+      h+='</div>';
     });
+    if(!list.length)h+='<div class="empty">没有符合条件的线索</div>';
     document.getElementById("view").innerHTML=h;
   }
 
@@ -659,6 +701,9 @@
     if(s){var i=dateIndex()+Number(s.dataset.step); if(i>=0&&i<byDateDesc.length)goDate(byDateDesc[i].date); return;}
     var p=e.target.closest(".datepill"); if(!p)return; goDate(p.dataset.date);
   });
+  document.getElementById("view").addEventListener("change",function(e){
+    var s=e.target.closest&&e.target.closest("[data-fsel]"); if(!s)return; var pr=s.dataset.fsel.split("|"); F[pr[0]][pr[1]]=s.value; render();
+  });
   document.getElementById("daterail").addEventListener("change",function(e){
     if(e.target.id==="dateSel")goDate(e.target.value);
   });
@@ -673,9 +718,16 @@
   });
   document.getElementById("view").addEventListener("click",function(e){
     var rb=e.target.closest("[data-frange]"); if(rb){var y=window.scrollY; FIN.range=Number(rb.dataset.frange); renderFinance(); window.scrollTo(0,y); return;}
+    var fb=e.target.closest("[data-f]");
+    if(fb){var pr=fb.dataset.f.split("|"); F[pr[0]][pr[1]]=pr.slice(2).join("|"); render(); return;}
+    var fr=e.target.closest("[data-freset]");
+    if(fr){if(fr.dataset.freset==="p")F.p={area:"",type:"",read:"",tag:""}; else F.t={cat:"",region:"",act:"active",fin:""}; render(); return;}
+    var tg=e.target.closest("[data-ptag]");
+    if(tg){e.preventDefault(); F.p={area:"",type:"",read:"",tag:tg.dataset.ptag}; state.view="papers"; state.q=""; document.getElementById("q").value=""; render(); window.scrollTo(0,0); return;}
     var go=e.target.closest("[data-goto]"); if(go){var el2=document.getElementById(go.dataset.goto); if(el2)el2.scrollIntoView({behavior:"smooth",block:"start"}); return;}
     var a=e.target.closest("[data-thread]"); if(!a)return; e.preventDefault();
-    state.view="threads"; state.q=""; document.getElementById("q").value=""; render();
+    state.view="threads"; state.q=""; document.getElementById("q").value="";
+    var tt=threadById[a.dataset.thread]; F.t={cat:"",region:"",act:(tt&&isActive(tt))?"active":"",fin:""}; render();
     var el=document.getElementById("th-"+a.dataset.thread); if(el)el.scrollIntoView({behavior:"smooth",block:"start"});
   });
   document.getElementById("theme").addEventListener("click",function(){
