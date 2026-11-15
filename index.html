@@ -223,7 +223,7 @@
     });
   }
   function start(json){
-    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market;} else window.NEWS_DATA=o;
+    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest;} else window.NEWS_DATA=o;
     var s=document.createElement("script"); s.text=document.getElementById("app-src").textContent; document.body.appendChild(s);
     document.getElementById("gate").remove();
   }
@@ -242,6 +242,7 @@
   });
 })();
 </script>
+
 
 <script type="text/plain" id="app-src">
 (function(){
@@ -421,7 +422,7 @@
   var SIGW = {"强烈加仓":2,"加仓":1.5,"正常定投":1,"暂缓/观望":0.5,"减仓":0,"强烈卖出":0};
   var GROUPS = [["us","美股指数"],["etf","美股 ETF（含比特币、黄金 ETF）"],["cn","A 股指数"],["hk","港股"],["jp","日本"],["cmd","大宗商品"],["crypto","加密资产"],["macro","利率 · 汇率 · 波动率"]];
   var LEVEL_ONLY = {us10y:1, vix:1, usdjpy:1, usdcny:1};
-  var FUNDKEY = [["富国全球科技","f022184"],["纳斯达克\\s*100","f018044"],["全球成长","f012920"],["日本精选","f019449"],["天然资源","f019578"],["2000","f019924"],["1000","f017095"],["科鑫","f022755"],["央企","f007793"]];
+  var FUNDKEY = [["Fidelity.*标普|^标普\\s*500（Fidelity","fFID-SPX"],["Fidelity.*纳斯达克|^纳斯达克.*（Fidelity","fFID-NDX"],["富国全球科技","f022184"],["纳斯达克\\s*100","f018044"],["全球成长","f012920"],["日本精选","f019449"],["天然资源","f019578"],["2000","f019924"],["1000","f017095"],["科鑫","f022755"],["央企","f007793"]];
   function normSig(s){
     s=String(s||""); var m=s.match(/至「([^」]+)」/); if(m)s=m[1];
     s=s.replace(/^[^一-龥]+/,"");
@@ -565,6 +566,17 @@
       if(tr&&tr.st)h+='<div class="note">跟踪的市场：'+esc(tr.name)+' '+fmt(tr.st.last)+'（'+esc(tr.st.date)+'，近 1 月 '+pc(tr.st.m1)+'），详见下方。</div>';
       h+='</div>';
     });
+    // 1b. backtest of the briefing's signals
+    var BT=window.BACKTEST;
+    if(BT){
+      var p2=function(x){return x==null?'—':x.toFixed(2);};
+      h+=secH("定投信号回测","Signal Backtest");
+      h+='<div class="card"><div class="row">数据截至 '+esc(BT.dataThrough)+'。<b>结论：</b>有信号历史的 '+BT.fundsTested+' 只基金里有 '+BT.fundsWithEdge+' 只按信号调金额后平均成本更低，平均成本优势 '+pc(BT.meanEdge)+'；信号强弱与之后 20 个交易日收益的秩相关 ρ = '+p2(BT.pooledRho20)+'（'+BT.pooledN+' 个信号日，各基金先去掉自身均值）。目前还看不出信号有择时能力。</div>';
+      h+='<div class="ftab-wrap"><table class="ftab"><tr><th>信号</th><th>次数</th><th>之后 5 日</th><th>之后 20 日</th><th>20 日为正的比例</th></tr>'+BT.classSummary.map(function(c){return '<tr><td><span class="sigchip" style="background:'+SIGC[c.signal]+'">'+esc(c.signal)+'</span></td><td>'+c.n+'</td><td>'+pc(c.f5)+'</td><td>'+pc(c.f20)+'（n='+c.n20+'）</td><td>'+(c.hit20!=null?c.hit20.toFixed(0)+'%':'—')+'</td></tr>';}).join("")+'</table></div>';
+      h+='<div class="ftab-wrap"><table class="ftab"><tr><th>基金</th><th>信号数</th><th>信号定投：成本优势</th><th>p（循环平移）</th><th>技术模型（同期）</th><th>技术模型（2 年）</th></tr>'+BT.funds.map(function(f){
+        return '<tr><td>'+esc(f.name)+'</td><td>'+f.nSignals+'</td><td>'+(f.dca?pc(f.dca.costEdge)+'，投入 ×'+p2(f.dca.invRatio):'暂无信号')+'</td><td>'+(f.dca&&f.dca.p!=null?p2(f.dca.p):'—')+'</td><td>'+(f.techSame?pc(f.techSame.costEdge):'—')+'</td><td>'+(f.techFull?pc(f.techFull.costEdge)+'（'+f.techFull.buys+' 周）':'—')+'</td></tr>';}).join("")+'</table></div>';
+      h+='<div class="note">方法：信号在简报日之后的第一个净值日成交（不偷看）；每周一笔，等额 ×1，按信号 强烈加仓 ×2 / 加仓 ×1.5 / 正常 ×1 / 暂缓 ×0.5 / 减仓 ×0。成本优势 = 等额方案平均成本 ÷ 信号方案平均成本 − 1，为正表示信号让你买得更便宜。p 值：把同一串权重整体循环平移，看「随便错开时间」能否达到同样效果，越小越说明时机有用（22 周样本时最小约 0.05）。技术模型只用价格（回撤、RSI、均线），可以往回算两年。样本只有约 5 个月、且大多处于下跌期，20 日收益相互重叠，结论只能当作初步读数。</div></div>';
+    }
     // 2. overview
     h+=secH("市场总览","Market Overview");
     h+='<div class="ftab-wrap"><table class="ftab"><tr><th>品种</th><th>最新</th><th>日期</th><th>1 日</th><th>1 周</th><th>1 月</th><th>3 月</th><th>今年</th><th>距 52 周高</th><th>RSI</th></tr>';
