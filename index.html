@@ -223,7 +223,7 @@
     });
   }
   function start(json){
-    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest;} else window.NEWS_DATA=o;
+    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest; window.STRATLAB=o.lab;} else window.NEWS_DATA=o;
     var s=document.createElement("script"); s.text=document.getElementById("app-src").textContent; document.body.appendChild(s);
     document.getElementById("gate").remove();
   }
@@ -242,6 +242,7 @@
   });
 })();
 </script>
+
 
 
 <script type="text/plain" id="app-src">
@@ -603,21 +604,30 @@
       h+='<div class="legend"><span><i style="background:var(--accent)"></i>单位净值</span><span><i style="background:var(--ana)"></i>50 日均线</span><span><i style="background:var(--muted)"></i>200 日均线</span>'+Object.keys(SIGC).map(function(k){return '<span><i style="background:'+SIGC[k]+';height:8px;width:8px;border-radius:50%"></i>'+k+'</span>';}).join("")+'</div>';
       if(vis.length)h+='<div class="sigstrip" title="信号时间线">'+vis.map(function(x){return '<b style="background:'+SIGC[x.signal]+'" title="'+esc(x.date+" "+x.signal)+'"></b>';}).join("")+'</div><div class="note">信号时间线 '+esc(vis[0].date)+' → '+esc(vis[vis.length-1].date)+'（'+vis.length+' 天；升降档次数 '+vis.reduce(function(a,x,i){return a+(i&&x.signal!==vis[i-1].signal?1:0);},0)+'）</div>';
       if(st)h+='<div class="fstats"><div><span>近 1 周</span>'+pc(st.w1)+'</div><div><span>近 1 月</span>'+pc(st.m1)+'</div><div><span>近 3 月</span>'+pc(st.m3)+'</div><div><span>今年以来</span>'+pc(st.ytd)+'</div><div><span>近 1 年</span>'+pc(st.y1)+'</div><div><span>1 年最大回撤</span>'+pc(st.mdd)+'</div><div><span>20 日年化波动</span>'+(st.vol!=null?st.vol.toFixed(1)+'%':'—')+'</div><div><span>RSI(14)</span>'+(st.rsi!=null?st.rsi.toFixed(0):'—')+'</div></div>';
-      if(sim)h+='<div class="readout"><span class="k">定投模拟（图表区间内，自 '+esc(sim.from)+' 每周一笔，共 '+sim.buys+' 笔）：</span>等额定投收益 '+pc(sim.plain)+'；同期一次性买入 '+pc(sim.lump)+'。'+(sim.sigFrom?'按简报信号调整金额（强烈加仓 ×2、加仓 ×1.5、正常 ×1、暂缓 ×0.5、减仓/卖出 ×0；'+esc(sim.sigFrom)+' 之前按 ×1）收益 '+pc(sim.wtd)+'，投入是等额方案的 '+sim.wInv.toFixed(2)+' 倍。':'')+'<div class="note">按单位净值估算，不含申购赎回费与分红；只用来比较「信号有没有帮上忙」，不是收益承诺。</div></div>';
+      if(sim)h+='<div class="readout"><span class="k">等额定投（图表区间内，自 '+esc(sim.from)+' 每周一笔，共 '+sim.buys+' 笔）：</span>期末市值比总投入 '+pc(sim.plain)+'；同期一次性买入 '+pc(sim.lump)+'。<div class="note">按单位净值估算，不含费用与分红，仅作描述。按规则或信号调整金额的比较见上方「策略实验室」。</div></div>';
       if(st)h+='<div class="readout">'+readout(f.id,st)+'</div>';
       if(tr&&tr.st)h+='<div class="note">跟踪的市场：'+esc(tr.name)+' '+fmt(tr.st.last)+'（'+esc(tr.st.date)+'，近 1 月 '+pc(tr.st.m1)+'），详见下方。</div>';
       h+='</div>';
     });
-    // 1b. backtest of the briefing's signals
-    var BT=window.BACKTEST;
+    // 1b. strategy lab (registered comparison) + signal forward returns
+    var LAB=window.STRATLAB, BT=window.BACKTEST, p2=function(x){return x==null?'—':Number(x).toFixed(2);};
+    var yn=function(b){return b==null?'—':b?'<span class="up">是</span>':'<span class="flat">否</span>';};
+    if(LAB){
+      var adopted=LAB.summary.filter(function(x){return x.adopt;});
+      h+=secH("策略实验室 · 定投规则比较","Strategy Lab");
+      h+='<div class="card"><div class="row"><b>结论：</b>'+(adopted.length?'达到采纳条件的规则：'+adopted.map(function(x){return esc(x.name);}).join("、"):'按预先登记的规程，'+LAB.summary.length+' 条规则没有一条达到采纳条件，所以<b>模型倍数为 1（普通定投）</b>。各规则在同样现金流下的期末财富平均比普通定投低 '+p2(Math.min.apply(null,LAB.summary.map(function(x){return -x.pooledMean5;})))+'% 到 '+p2(Math.max.apply(null,LAB.summary.map(function(x){return -x.pooledMean5;})))+'%，主要是备用金闲置的代价。')+'</div>';
+      h+='<div class="ftab-wrap"><table class="ftab"><tr><th>规则</th><th>5 年期末财富差</th><th>3 年</th><th>区间下界 &gt; 0</th><th>校正后显著</th><th>方向为正</th><th>基金留出（约 2 年）</th><th>采纳</th></tr>'+LAB.summary.map(function(x){
+        return '<tr><td>'+esc(x.strategy+' '+x.name)+'</td><td>'+pc(x.pooledMean5)+'</td><td>'+pc(x.pooledMean3)+'</td><td>'+x.ciLowPos+' / '+x.nIndex+'</td><td>'+x.holmSig+' / '+x.nIndex+'</td><td>'+x.posIndex+' / '+x.nIndex+'</td><td>'+(x.holdoutMean==null?'—':pc(x.holdoutMean))+'</td><td>'+yn(x.adopt)+'</td></tr>';}).join("")+'</table></div>';
+      h+='<details><summary style="cursor:pointer;color:var(--accent);font-size:13px">展开各指数明细（'+LAB.rows.length+' 个检验）</summary><div class="ftab-wrap" style="margin-top:8px"><table class="ftab"><tr><th>指数</th><th>规则</th><th>起始</th><th>5 年平均</th><th>中位数</th><th>为正比例</th><th>最差 5%</th><th>重抽样区间</th><th>安慰剂 p</th><th>校正后 p</th><th>三段平均</th><th>备用金占比</th></tr>'+LAB.rows.map(function(r){
+        return '<tr><td>'+esc(r.indexName)+'</td><td>'+esc(r.strategy)+'</td><td>'+esc(String(r.from).slice(0,7))+'</td><td>'+pc(r.mean5)+'</td><td>'+pc(r.median5)+'</td><td>'+p2(r.pos5)+'%</td><td>'+pc(r.p5)+'</td><td>'+(r.ci?p2(r.ci[0])+' ~ '+p2(r.ci[1]):'—')+'</td><td>'+p2(r.placeboP)+'</td><td>'+p2(r.holmP)+'</td><td>'+r.thirds.map(p2).join(' / ')+'</td><td>'+p2(r.poolShare)+'%</td></tr>';}).join("")+'</table></div></details>';
+      h+='<div class="row" style="margin-top:10px"><b>简报主观信号（S7）：</b>从 2026-06-15 起按同一套记账规则，'+LAB.s7.length+' 只基金的期末财富平均比普通定投 '+pc(LAB.s7Mean)+'，但安慰剂检验没有一只显著（最小 p = '+p2(Math.min.apply(null,LAB.s7.map(function(x){return x.p;})))+'）。这段时间市场以下跌为主，「暂缓」时留着现金本身就占便宜，把同样的信号错开时间也能得到类似结果，所以<b>尚无证据表明主观信号有择时能力</b>。</div>';
+      h+='<div class="ftab-wrap"><table class="ftab"><tr><th>基金</th><th>周数</th><th>期末财富差</th><th>备用金占比</th><th>安慰剂 p</th></tr>'+LAB.s7.map(function(x){return '<tr><td>'+esc(x.name)+'</td><td>'+x.weeks+'</td><td>'+pc(x.delta)+'</td><td>'+p2(x.poolShare)+'%</td><td>'+p2(x.p)+'</td></tr>';}).join("")+'</table></div>';
+      h+='<div class="note">方法：每周到账 1 份钱进备用金池，按规则倍数（0.5–2 倍）买入，多买只能用池里的钱，池内按年化 2% 计息；比较「同样现金流下的期末总财富」。指数为价格指数（不含分红），标普 500 和日经自 1970 年、纳斯达克 100 自 1985 年、沪深 300 和中证 1000 自 2005 年、中证 2000 自 2014 年。安慰剂 = 把同一串倍数整体错开时间；重抽样 = '+LAB.boot+' 条分段重抽样路径；p 值做了 Holm 多重检验校正。规则、参数和采纳条件在运行前已登记（'+esc(LAB.protocol)+'）。已知局限：重抽样会打散长周期的均值回归，区间偏保守；未计申购费和限购。生成时间 '+esc(String(LAB.generated).slice(0,10))+'。</div></div>';
+    }
     if(BT){
-      var p2=function(x){return x==null?'—':x.toFixed(2);};
-      h+=secH("定投信号回测","Signal Backtest");
-      h+='<div class="card"><div class="row">数据截至 '+esc(BT.dataThrough)+'。<b>结论：</b>有信号历史的 '+BT.fundsTested+' 只基金里有 '+BT.fundsWithEdge+' 只按信号调金额后平均成本更低，平均成本优势 '+pc(BT.meanEdge)+'；信号强弱与之后 20 个交易日收益的秩相关 ρ = '+p2(BT.pooledRho20)+'（'+BT.pooledN+' 个信号日，各基金先去掉自身均值）。目前还看不出信号有择时能力。</div>';
+      h+='<div class="card"><h3>信号发出后的走势</h3><div class="row">数据截至 '+esc(BT.dataThrough)+'。信号强弱与之后 20 个交易日收益的秩相关 ρ = '+p2(BT.pooledRho20)+'（'+BT.pooledN+' 个信号日，各基金先去掉自身均值）。</div>';
       h+='<div class="ftab-wrap"><table class="ftab"><tr><th>信号</th><th>次数</th><th>之后 5 日</th><th>之后 20 日</th><th>20 日为正的比例</th></tr>'+BT.classSummary.map(function(c){return '<tr><td><span class="sigchip" style="background:'+SIGC[c.signal]+'">'+esc(c.signal)+'</span></td><td>'+c.n+'</td><td>'+pc(c.f5)+'</td><td>'+pc(c.f20)+'（n='+c.n20+'）</td><td>'+(c.hit20!=null?c.hit20.toFixed(0)+'%':'—')+'</td></tr>';}).join("")+'</table></div>';
-      h+='<div class="ftab-wrap"><table class="ftab"><tr><th>基金</th><th>信号数</th><th>信号定投：成本优势</th><th>p（循环平移）</th><th>技术模型（同期）</th><th>技术模型（2 年）</th></tr>'+BT.funds.map(function(f){
-        return '<tr><td>'+esc(f.name)+'</td><td>'+f.nSignals+'</td><td>'+(f.dca?pc(f.dca.costEdge)+'，投入 ×'+p2(f.dca.invRatio):'暂无信号')+'</td><td>'+(f.dca&&f.dca.p!=null?p2(f.dca.p):'—')+'</td><td>'+(f.techSame?pc(f.techSame.costEdge):'—')+'</td><td>'+(f.techFull?pc(f.techFull.costEdge)+'（'+f.techFull.buys+' 周）':'—')+'</td></tr>';}).join("")+'</table></div>';
-      h+='<div class="note">方法：信号在简报日之后的第一个净值日成交（不偷看）；每周一笔，等额 ×1，按信号 强烈加仓 ×2 / 加仓 ×1.5 / 正常 ×1 / 暂缓 ×0.5 / 减仓 ×0。成本优势 = 等额方案平均成本 ÷ 信号方案平均成本 − 1，为正表示信号让你买得更便宜。p 值：把同一串权重整体循环平移，看「随便错开时间」能否达到同样效果，越小越说明时机有用（22 周样本时最小约 0.05）。技术模型只用价格（回撤、RSI、均线），可以往回算两年。样本只有约 5 个月、且大多处于下跌期，20 日收益相互重叠，结论只能当作初步读数。</div></div>';
+      h+='<div class="note">信号在简报日之后的第一个净值日计价。20 日收益相互重叠，样本只有约 5 个月，只能当作初步读数。</div></div>';
     }
     // 2. overview
     h+=secH("市场总览","Market Overview");
