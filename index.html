@@ -144,6 +144,7 @@
   .readout .k{color:var(--muted);margin-right:4px}
   .note{font-size:12px;color:var(--muted);margin-top:4px}
 
+  .c-market{background:#e3f1f6;color:#0b6e8a} html[data-theme="dark"] .c-market{background:#163640;color:#7fd0e6}
   mark{background:#ffe58a;color:inherit;padding:0 2px;border-radius:2px}
   .empty{color:var(--muted);text-align:center;padding:40px}
   .foot{color:var(--muted);font-size:12.5px;text-align:center;margin-top:40px;border-top:1px solid var(--line);padding-top:16px}
@@ -223,7 +224,7 @@
     });
   }
   function start(json){
-    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest; window.STRATLAB=o.lab;} else window.NEWS_DATA=o;
+    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest; window.STRATLAB=o.lab; window.PMDATA=o.pm; window.PMCAL=o.pmcal;} else window.NEWS_DATA=o;
     var s=document.createElement("script"); s.text=document.getElementById("app-src").textContent; document.body.appendChild(s);
     document.getElementById("gate").remove();
   }
@@ -245,6 +246,8 @@
 
 
 
+
+
 <script type="text/plain" id="app-src">
 (function(){
   "use strict";
@@ -259,6 +262,13 @@
 
   // ---- helpers ----
   function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+  var PM=window.PMDATA||null;
+  function pmPct(x){return x==null?'—':(x*100).toFixed(1)+'%';}
+  function pmChg(x){if(x==null)return '';var v=x*100;return ' <span class="'+(v>0.5?'up':v<-0.5?'dn':'flat')+'">'+(v>0?'+':'')+v.toFixed(1)+' 个百分点/周</span>';}
+  function pmLine(threadId){
+    if(!PM)return '';var ms=PM.markets.filter(function(m){return m.thread===threadId&&!m.closed;});if(!ms.length)return '';
+    return '<div class="row"><span class="chip c-market">市场预期</span>'+ms.map(function(m){return '<a href="'+esc(m.url)+'" target="_blank" rel="noopener">'+esc(m.question)+'</a> <b>'+pmPct(m.p)+'</b>'+pmChg(m.d7)+(m.quality!=='ok'?' <span class="chip c-watch">流动性低</span>':'');}).join('；')+' <span class="note">（Polymarket，截至 '+esc(String(PM.updated).slice(0,10))+'）</span></div>';
+  }
   function hl(s){ // highlight search term
     s=esc(s); if(!state.q)return s;
     try{return s.replace(new RegExp("("+state.q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")","ig"),"<mark>$1</mark>");}catch(e){return s;}
@@ -301,6 +311,7 @@
           if(prior.length)h+='<div class="row"><b>此前进展</b>'+esc(prior[0].note)+(prior.length>1?' …等 '+prior.length+' 条':"")+'</div>';
           h+='<div class="row"><b>今日新变化</b>'+hl(o.today||"")+'</div>';
           if(t.nextWatch)h+='<div class="row"><b>下一步关注</b>'+esc(t.nextWatch)+'</div>';
+          if(b.date===LATEST)h+=pmLine(o.threadId);
           h+='</div>';
         });
       }
@@ -437,6 +448,7 @@
       h+='<div class="card" id="th-'+esc(t.id)+'"><h3>'+catChip(t)+'<span class="chip c-watch">'+esc(TXL("threadRegion",t.region||""))+'</span>'+(t.fin?'<span class="chip c-analysis" title="'+esc(t.fin.event||"")+'">财经 · '+esc((t.fin.market||[]).join("/"))+'</span>':'')+'<span style="color:var(--muted);font-size:12px">'+esc(t.id)+'</span> '+hl(t.title)+'</h3>';
       h+='<div class="row"><span class="status">'+esc(t.status||"")+'</span></div>';
       if(t.nextWatch)h+='<div class="row"><b>下一步关注</b>'+esc(t.nextWatch)+'</div>';
+      h+=pmLine(t.id);
       if(last.note)h+='<div class="row"><b>'+esc(last.date)+'</b>'+hl(last.note)+'</div>'+sources(last.sources);
       if(hs.length>1)h+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent);font-size:13px">展开全部 '+hs.length+' 条时间线</summary><div class="tl" style="margin-top:10px">'+hs.slice(1).map(function(e){return '<div class="ev"><div class="d">'+esc(e.date)+'</div><div>'+hl(e.note)+'</div>'+sources(e.sources)+'</div>';}).join("")+'</div></details>';
       h+='</div>';
@@ -658,6 +670,23 @@
         if(a.group==="unc")return;
         h+='<tr data-goto="fin-'+a.id+'"><td>'+esc(a.name)+'</td><td>'+fmt(st.last)+'</td><td>'+esc((st.date||"").slice(5))+'</td><td>'+pc(st.d1)+'</td><td>'+pc(st.w1)+'</td><td>'+pc(st.m1)+'</td><td>'+pc(st.m3)+'</td><td>'+pc(st.ytd)+'</td><td>'+pc(st.fromHi)+'</td><td>'+(st.rsi!=null?st.rsi.toFixed(0):'—')+'</td></tr>';});});
     h+='</table></div>';
+    // 2b. prediction markets
+    if(PM){
+      h+=secH("预测市场 · Polymarket","Market-implied probabilities");
+      h+='<div class="card"><div class="row">价格读作「市场预期」，不是事实。流动性 ≥ $'+(PM.thresholds.minLiquidity/1000)+'k 且成交额 ≥ $'+(PM.thresholds.minVolume/1000)+'k 的市场才进简报，其余标「流动性低」。'+(PM.alerts&&PM.alerts.length?'<br><b>异动：</b>'+PM.alerts.map(function(a){return esc(a.thread)+' '+esc(a.question)+' 现 '+pmPct(a.p)+'（一周 '+(a.d7>0?'+':'')+(a.d7*100).toFixed(1)+' 个百分点）';}).join('；'):'')+'</div>';
+      h+='<div class="ftab-wrap"><table class="ftab"><tr><th>线索</th><th>市场问题</th><th>概率</th><th>1 日</th><th>7 日</th><th>流动性</th><th>成交额</th><th>截止</th></tr>'+PM.markets.map(function(m){var pp=function(x){return x==null?'—':((x>0?'+':'')+(x*100).toFixed(1));};return '<tr data-goto="pm-'+esc(m.id)+'"><td>'+esc(m.thread)+'</td><td style="text-align:left;white-space:normal">'+esc(m.question)+(m.quality!=='ok'?' <span class="chip c-watch">流动性低</span>':'')+'</td><td><b>'+pmPct(m.p)+'</b></td><td>'+pp(m.d1)+'</td><td>'+pp(m.d7)+'</td><td>$'+Math.round(m.liquidity/1000)+'k</td><td>$'+(m.volume>=1e6?(m.volume/1e6).toFixed(1)+'M':Math.round(m.volume/1000)+'k')+'</td><td>'+esc(String(m.endDate||'').slice(0,10))+'</td></tr>';}).join('')+'</table></div>';
+      h+='<div class="note">数据：Polymarket 公开接口，只读，不涉及账户和交易。异动规则：一天变动 ≥ '+(PM.thresholds.moveAlert24h*100)+' 个百分点或一周 ≥ '+(PM.thresholds.moveAlert7d*100)+' 个百分点，且流动性达标。每日快照只追加，用于事后检验准确度（已记录 '+PM.snapshots.length+' 天）。</div></div>';
+      PM.markets.forEach(function(m){var hs=(PM.history[m.id]||[]).map(function(p){return [p[0],Math.round(p[1]*1000)/10];}); if(hs.length<5)return;
+        h+='<div class="card fcard" id="pm-'+esc(m.id)+'"><h3>'+esc(m.question)+'<span class="px">'+pmPct(m.p)+'</span><span class="note">'+esc(m.thread)+' · 截止 '+esc(String(m.endDate||'').slice(0,10))+'</span></h3>'+chartSVG('pm-'+m.id,hs,{})+'<div class="note">纵轴为概率（%）。结算规则摘要：'+esc((m.rules||'').slice(0,220))+(m.rules&&m.rules.length>220?'…':'')+' <a href="'+esc(m.url)+'" target="_blank" rel="noopener">原市场 ↗</a></div></div>';});
+      var CAL=window.PMCAL;
+      if(CAL&&CAL.horizons&&CAL.horizons[7]&&CAL.horizons[7].all){var c7=CAL.horizons[7].all, p1=function(x){return x==null?'—':(x*100).toFixed(1);};
+        h+='<div class="card"><h3>历史校准：Polymarket 的概率准不准？</h3><div class="row">按预先登记的规程（'+esc(CAL.protocol)+'），检验 '+CAL.sampleMarkets+' 个已结算市场（政治、经济与美联储、地缘、加密、科技），读取计划结束前 1、7、30 天的价格。</div>';
+        h+='<div class="ftab-wrap"><table class="ftab"><tr><th>时点</th><th>市场数</th><th>事件数</th><th>Brier 分数</th><th>基准</th><th>技能分数（95% 区间）</th><th>覆盖对角线的档数</th></tr>'+[1,7,30].map(function(k){var a=CAL.horizons[k].all;return a?'<tr><td>结束前 '+k+' 天</td><td>'+a.n+'</td><td>'+a.events+'</td><td>'+a.brier.toFixed(4)+'</td><td>'+a.brierBase.toFixed(4)+'</td><td>'+a.skill.toFixed(3)+'（'+a.skillCI.map(function(x){return x.toFixed(3);}).join(' ~ ')+'）</td><td>'+a.covered+' / '+a.populated+'</td></tr>':'';}).join('')+'</table></div>';
+        h+='<div class="ftab-wrap"><table class="ftab"><tr><th>预测概率（结束前 7 天）</th><th>个数</th><th>平均预测</th><th>实际发生</th><th>95% 区间</th></tr>'+c7.table.map(function(t){return '<tr><td>'+(t.bin*10)+'–'+(t.bin*10+10)+'%</td><td>'+t.n+'</td><td>'+p1(t.pred)+'%</td><td>'+p1(t.obs)+'%</td><td>'+p1(t.lo)+' ~ '+p1(t.hi)+(t.covers===false?' <span class="chip c-risk">偏离</span>':'')+'</td></tr>';}).join('')+'</table></div>';
+        h+='<div class="ftab-wrap"><table class="ftab"><tr><th>领域（结束前 7 天）</th><th>市场数</th><th>Brier</th><th>技能分数</th><th>覆盖</th></tr>'+Object.keys(CAL.horizons[7].byCat).map(function(k){var a=CAL.horizons[7].byCat[k];return a?'<tr><td>'+esc(k)+'</td><td>'+a.n+'</td><td>'+a.brier.toFixed(4)+'</td><td>'+a.skill.toFixed(3)+'</td><td>'+a.covered+' / '+a.populated+'</td></tr>':'';}).join('')+'</table></div>';
+        h+='<div class="note">Brier 分数越低越好；技能分数 = 1 − Brier ÷ 「始终报样本平均发生率」的 Brier，大于 0 表示比只报平均发生率强。区间按事件整体重抽样（同一事件下的市场一起抽）。在测量时点之前已提前结算的市场不计入：结束前 7 天被排除 '+CAL.excludedEarly[7].early+' 个，其中 '+p1(CAL.excludedEarly[7].earlyYesShare)+'% 结果为 Yes，所以样本偏向「到期前仍未发生」的问题。</div></div>';
+      }
+    }
     // 3. risk gauge
     var vix=byId.vix&&byId.vix.st, tnx=byId.us10y&&byId.us10y.st, jpy=byId.usdjpy&&byId.usdjpy.st, btc=byId.btc&&byId.btc.st;
     h+=secH("风险仪表","Risk Gauge");
