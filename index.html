@@ -119,6 +119,8 @@
   .fin-tools .lab{color:var(--muted);font-size:13px;margin-right:4px}
   .rbtn{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--panel);color:var(--ink2);border-radius:7px;padding:4px 10px;cursor:pointer}
   .rbtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .rbtn.sm{font-size:11.5px;padding:2px 8px;border-radius:6px}
+  .crange{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;margin:6px 0 2px}
   .ftab{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .ftab th,.ftab td{padding:7px 8px;border-bottom:1px solid var(--line2);text-align:right;white-space:nowrap}
   .ftab th{background:var(--line2);color:var(--ink2);font-weight:600}
@@ -486,7 +488,7 @@
 
   // ---- finance ----
   var M = window.MARKET_DATA || null;
-  var FIN = {range: 252, charts: {}};
+  var FIN = {range: 252, rangeOf: {}, charts: {}};
   var SIGC = {"强烈加仓":"#1b7f3b","加仓":"#2e9e5b","正常定投":"#4a6fa5","暂缓/观望":"#c98a00","减仓":"#d0631b","强烈卖出":"#b42318"};
   function marks(s){return esc(s).replace(/[\[【](分析|风险|待证|事实|单源)[\]】]/g,function(m,w){var c={分析:"c-analysis",风险:"c-risk",待证:"c-watch",单源:"c-watch",事实:"c-fact"}[w];return '<span class="chip '+c+'">'+w+'</span>';});}
   var SIGW = {"强烈加仓":2,"加仓":1.5,"正常定投":1,"暂缓/观望":0.5,"减仓":0,"强烈卖出":0};
@@ -552,11 +554,15 @@
   }
   function fmt(x){if(x==null||isNaN(x))return "—"; var a=Math.abs(x); return x.toLocaleString("en-US",{maximumFractionDigits:a>=1000?0:a>=10?2:4});}
   function pc(x){if(x==null||isNaN(x))return '<span class="flat">—</span>'; var c=x>0.005?"up":x<-0.005?"dn":"flat"; return '<span class="'+c+'">'+(x>0?"+":"")+x.toFixed(2)+'%</span>';}
-  function sliceRange(s){return FIN.range>0?s.slice(Math.max(0,s.length-FIN.range)):s;}
+  // per-chart range: FIN.rangeOf[key] overrides the page-wide FIN.range
+  var RNG=[[63,"3 个月"],[126,"6 个月"],[252,"1 年"],[504,"2 年"],[0,"全部"]];
+  function rangeFor(key){var r=key!=null&&FIN.rangeOf&&FIN.rangeOf[key]; return r!=null&&r!==false?r:FIN.range;}
+  function sliceRange(s,key){var n=rangeFor(key); return n>0?s.slice(Math.max(0,s.length-n)):s;}
+  function rangeBtns(key){var n=rangeFor(key); return '<div class="crange">'+RNG.map(function(r){return '<button class="rbtn sm'+(n===r[0]?" on":"")+'" data-frange="'+r[0]+'" data-fkey="'+esc(key)+'">'+r[1]+'</button>';}).join("")+'</div>';}
   // SVG line chart. extra: {ma:true, marks:[{date,color,label}]}
   function chartSVG(key,series,extra){
     extra=extra||{}; var full=vals(series), m50=extra.ma?sma(full,50):null, m200=extra.ma?sma(full,200):null;
-    var off=FIN.range>0?Math.max(0,series.length-FIN.range):0, s=series.slice(off); if(s.length<2)return '<div class="note">数据不足</div>';
+    var rn=rangeFor(key), off=rn>0?Math.max(0,series.length-rn):0, s=series.slice(off); if(s.length<2)return rangeBtns(key)+'<div class="note">数据不足</div>';
     var W=660,H=220,L=48,R=10,T=10,B=24, ys=vals(s);
     var all=ys.slice(); if(m50)for(var i=off;i<full.length;i++){if(m50[i]!=null)all.push(m50[i]);if(m200[i]!=null)all.push(m200[i]);}
     var lo=Math.min.apply(null,all), hi=Math.max.apply(null,all), pad=(hi-lo)*0.06||1; lo-=pad; hi+=pad;
@@ -574,7 +580,7 @@
       extra.marks.forEach(function(mk){var i=di[mk.date]; if(i==null){for(var j=s.length-1;j>=0;j--)if(s[j][0]<=mk.date){i=j;break;}} if(i==null||s[0][0]>mk.date)return; g+='<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(ys[i]).toFixed(1)+'" r="3.2" fill="'+mk.color+'" stroke="var(--panel)" stroke-width="1"><title>'+esc(mk.date+" "+mk.label)+'</title></circle>';});}
     g+='<line class="xh" x1="0" x2="0" y1="'+T+'" y2="'+(H-B)+'" stroke="var(--ink2)" stroke-width=".7" opacity="0"/>';
     FIN.charts[key]={s:s,m50:m50?m50.slice(off):null,m200:m200?m200.slice(off):null,L:L,R:R,W:W};
-    return '<div class="chartbox" data-chart="'+esc(key)+'"><svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img">'+g+'</svg><div class="tip"></div></div>';
+    return rangeBtns(key)+'<div class="chartbox" data-chart="'+esc(key)+'"><svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img">'+g+'</svg><div class="tip"></div></div>';
   }
   function chartHover(e){
     var box=e.target.closest&&e.target.closest(".chartbox"); if(!box)return; var c=FIN.charts[box.dataset.chart]; if(!c)return;
@@ -587,9 +593,9 @@
     tip.innerHTML=t; tip.style.display="block"; var tw=tip.offsetWidth; tip.style.left=Math.max(0,Math.min(r.width-tw,px-tw/2))+"px"; tip.style.top="-6px";
   }
   function chartLeave(e){var box=e.target.closest&&e.target.closest(".chartbox"); if(!box)return; box.querySelector(".tip").style.display="none"; var xh=box.querySelector(".xh"); if(xh)xh.setAttribute("opacity","0");}
-  function dcaSim(series,hist){
+  function dcaSim(series,hist,key){
     // weekly equal-amount plan vs signal-weighted plan, over the visible range; units = amount / NAV
-    var s=sliceRange(series); if(s.length<10)return null;
+    var s=sliceRange(series,key); if(s.length<10)return null;
     var plain={inv:0,u:0}, wtd={inv:0,u:0}, hs=(hist||[]).slice(), hi=0, cur=null, wk="", buys=0;
     s.forEach(function(p){
       var dt=new Date(p[0]+"T00:00:00Z"), mon=new Date(dt.getTime()-((dt.getUTCDay()+6)%7)*864e5).toISOString().slice(0,10);
@@ -613,8 +619,8 @@
     FIN.charts={};
     var byId={}; M.assets.forEach(function(a){byId[a.id]=a; a.st=stats(a.series,a.group==="crypto");}); M.funds.forEach(function(f){byId[f.id]=f; f.st=stats(f.series,false);});
     var H=sigHistory(), lb=byDateDesc[0];
-    var rng=[[63,"3 个月"],[126,"6 个月"],[252,"1 年"],[504,"2 年"],[0,"全部"]];
-    var h='<div class="fin-tools"><span class="lab">图表区间</span>'+rng.map(function(r){return '<button class="rbtn'+(FIN.range===r[0]?" on":"")+'" data-frange="'+r[0]+'">'+r[1]+'</button>';}).join("")+
+    var rng=RNG;
+    var h='<div class="fin-tools"><span class="lab">全部图表区间</span>'+rng.map(function(r){return '<button class="rbtn'+(FIN.range===r[0]?" on":"")+'" data-frange="'+r[0]+'">'+r[1]+'</button>';}).join("")+
       '<span class="note" style="margin-left:auto">行情更新：'+esc(String(M.updated).slice(0,16).replace("T"," "))+' UTC · 红涨绿跌</span></div>';
     // 1. my DCA dashboard
     h+=secH("我的定投 · 信号与净值","My DCA Funds");
@@ -623,8 +629,8 @@
       h+='<tr data-goto="fin-'+f.id+'"><td>'+esc(f.name)+'</td><td>'+(cur?'<span class="sigchip" style="background:'+SIGC[cur.signal]+'">'+esc(cur.signal)+'</span>':'—')+'</td><td>'+fmt(st.last)+'</td><td>'+pc(st.m1)+'</td><td>'+pc(st.m3)+'</td><td>'+pc(st.ytd)+'</td><td>'+pc(st.fromHi)+'</td><td>'+esc(tr?tr.name:"")+'</td></tr>';});
     h+='</table></div><div class="note">信号取自每日简报「我的定投建议」（共 '+Object.keys(H).reduce(function(a,k){return a+H[k].length;},0)+' 条，自 2026-06-15 起）；净值为东方财富单位净值，未计分红。QDII 净值滞后 1–2 个交易日。</div>';
     M.funds.forEach(function(f){
-      var hs=H[f.id]||[], cur=hs[hs.length-1], st=f.st, tr=byId[f.track], sim=dcaSim(f.series,hs);
-      var visFrom=sliceRange(f.series)[0]; visFrom=visFrom?visFrom[0]:"";
+      var hs=H[f.id]||[], cur=hs[hs.length-1], st=f.st, tr=byId[f.track], sim=dcaSim(f.series,hs,f.id);
+      var visFrom=sliceRange(f.series,f.id)[0]; visFrom=visFrom?visFrom[0]:"";
       var vis=hs.filter(function(x){return x.date>=visFrom;});
       h+='<div class="card fcard" id="fin-'+f.id+'"><h3>'+esc(f.name)+' <span class="note">'+esc(f.code)+'</span>'+(cur?'<span class="sigchip" style="background:'+SIGC[cur.signal]+'">'+esc(cur.signal)+'</span>':'')+'<span class="px">'+fmt(st&&st.last)+'</span><span class="note">'+esc(st?st.date:"")+'</span></h3>';
       if(cur)h+='<div class="row"><b>依据：</b>'+marks(cur.basis)+'</div>'+(cur.level?'<div class="row"><b>触发线：</b>'+esc(cur.level)+'</div>':'')+(cur.tone?'<div class="row"><b>中期基调：</b>'+esc(cur.tone)+'</div>':'');
@@ -780,7 +786,14 @@
     clearTimeout(qt); var v=e.target.value.trim(); qt=setTimeout(function(){state.q=v; render();},160);
   });
   document.getElementById("view").addEventListener("click",function(e){
-    var rb=e.target.closest("[data-frange]"); if(rb){var y=window.scrollY; FIN.range=Number(rb.dataset.frange); renderFinance(); window.scrollTo(0,y); return;}
+    var rb=e.target.closest("[data-frange]"); if(rb){
+      var k=rb.dataset.fkey, n=Number(rb.dataset.frange), y=window.scrollY, top=rb.getBoundingClientRect().top;
+      if(k){FIN.rangeOf[k]=n;} else {FIN.range=n; FIN.rangeOf={};}
+      renderFinance();
+      // keep the clicked button where it was on screen (content above may change height)
+      var nb=k?document.querySelector('[data-fkey="'+(window.CSS&&CSS.escape?CSS.escape(k):k)+'"][data-frange="'+n+'"]'):null;
+      if(nb)window.scrollTo(0,window.scrollY+nb.getBoundingClientRect().top-top); else window.scrollTo(0,y);
+      return;}
     var fb=e.target.closest("[data-f]");
     if(fb){var pr=fb.dataset.f.split("|"); F[pr[0]][pr[1]]=pr.slice(2).join("|"); render(); return;}
     var fr=e.target.closest("[data-freset]");
