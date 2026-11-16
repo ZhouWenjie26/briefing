@@ -226,7 +226,7 @@
     });
   }
   function start(json){
-    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest; window.STRATLAB=o.lab; window.PMDATA=o.pm; window.PMCAL=o.pmcal;} else window.NEWS_DATA=o;
+    var o=JSON.parse(json); if(o&&o.news){window.NEWS_DATA=o.news; window.MARKET_DATA=o.market; window.BACKTEST=o.backtest; window.STRATLAB=o.lab; window.PMDATA=o.pm; window.PMCAL=o.pmcal; window.LIBDATA=o.lib; window.EMBDATA=o.emb;} else window.NEWS_DATA=o;
     var s=document.createElement("script"); s.text=document.getElementById("app-src").textContent; document.body.appendChild(s);
     document.getElementById("gate").remove();
   }
@@ -245,6 +245,8 @@
   });
 })();
 </script>
+
+
 
 
 
@@ -379,7 +381,9 @@
     var links=[];
     if(p.url)links.push('<a href="'+esc(p.url)+'" target="_blank" rel="noopener">原文 ↗</a>');
     if(p.doi)links.push('<a href="https://doi.org/'+esc(p.doi)+'" target="_blank" rel="noopener">DOI</a>');
-    if(p.code)links.push('<a href="'+esc(p.code)+'" target="_blank" rel="noopener">代码</a>');
+    if(p.code&&/^https?:/.test(p.code))links.push('<a href="'+esc(p.code)+'" target="_blank" rel="noopener">代码</a>');
+    var zl=LIB&&LIB.archiveLinks&&LIB.archiveLinks[p.id];
+    if(zl){links.push('<a href="zotero://select/library/items/'+esc(zl.key)+'" title="在本机的 Zotero 中定位（需要安装 Zotero）">在 Zotero 中打开</a>'); if(zl.pdf)links.push('<a href="zotero://open-pdf/library/items/'+esc(zl.pdf)+'" title="用本机 Zotero 打开 PDF">打开本地 PDF</a>');}
     var firstNote = (onDate && p.firstSeen && p.firstSeen<onDate) ? ' · <span style="color:var(--muted)">首次推荐于 '+esc(p.firstSeen)+'，延续讨论</span>':'';
     return '<div class="paper"><div class="pt"><span class="venue '+venueClass(p.type)+'">'+esc(p.venue)+'</span>'+hl(p.title)+(isNew?'<span class="badge-new">NEW</span>':"")+firstNote+'</div>'+
       paperDates(p)+
@@ -459,28 +463,113 @@
     document.getElementById("view").innerHTML=h;
   }
 
-  function renderSearch(){
-    var q=state.q.toLowerCase(), docs=[];
-    function add(date,sec,title,text,url){docs.push({date:date,sec:sec,title:title,text:text,url:url});}
+  // ---- search: fuzzy keyword + optional semantic (multilingual-e5-small in the browser) + Zotero library ----
+  var LIB=window.LIBDATA||null, EMB=window.EMBDATA||null;
+  var SR={scope:"all", sem:false, model:null, loading:false, qvec:null, qfor:"", err:""};
+  var EMBV=null; function embVec(){ if(EMBV||!EMB)return EMBV; var bin=atob(EMB.vec), a=new Int8Array(bin.length); for(var i=0;i<bin.length;i++){var c=bin.charCodeAt(i); a[i]=c>127?c-256:c;} EMBV=a; return a; }
+  var LIBBY={}; if(LIB)LIB.items.forEach(function(z){LIBBY[z.key]=z;});
+  function lev1(a,b){ // edit distance <=1 ?
+    if(a===b)return true; var la=a.length, lb=b.length; if(Math.abs(la-lb)>1)return false;
+    var i=0,j=0,d=0; while(i<la&&j<lb){ if(a[i]===b[j]){i++;j++;continue;} if(++d>1)return false; if(la>lb)i++; else if(lb>la)j++; else {i++;j++;} } return d+(la-i)+(lb-j)<=1;
+  }
+  function tokens(q){ return q.toLowerCase().split(/[\s,，;；、]+/).filter(function(t){return t.length;}); }
+  function cjk(t){ return /[\u4e00-\u9fa5]/.test(t); }
+  function bigrams(t){ var o=[]; for(var i=0;i<t.length-1;i++)o.push(t.slice(i,i+2)); return o.length?o:[t]; }
+  function kwScore(doc, q, toks){
+    var title=(doc.title||"").toLowerCase(), meta=(doc.meta||"").toLowerCase(), body=(doc.text||"").toLowerCase(), all=title+" "+meta+" "+body, sc=0, hit=0;
+    if(q.length>1){ if(title.indexOf(q)>=0)sc+=10; else if(all.indexOf(q)>=0)sc+=4; }
+    var words=null;
+    toks.forEach(function(t){
+      if(title.indexOf(t)>=0){sc+=3;hit++;return;} if(meta.indexOf(t)>=0){sc+=2;hit++;return;} if(body.indexOf(t)>=0){sc+=1;hit++;return;}
+      if(cjk(t)&&t.length>=3){ var bg=bigrams(t), m=bg.filter(function(g){return all.indexOf(g)>=0;}).length; if(m/bg.length>=0.6){sc+=0.8*m/bg.length;hit++;} return; }
+      if(!cjk(t)&&t.length>=5){ words=words||all.split(/[^a-z0-9\u4e00-\u9fa5]+/); for(var i=0;i<words.length;i++){ if(words[i].length>=4&&lev1(t,words[i])){sc+=0.8;hit++;return;} } }
+    });
+    return hit>=Math.ceil(toks.length*0.6)?sc:0;
+  }
+  function searchDocs(){
+    var docs=[];
+    function add(o){docs.push(o);}
     byDateDesc.forEach(function(b){
-      (b.tldr||[]).forEach(function(t){add(b.date,"速览","",t.text,t.url);});
+      (b.tldr||[]).forEach(function(t){add({kind:"brief",sec:"速览",date:b.date,title:"",text:t.text,url:t.url});});
       var s=b.sections||{};
-      ((s.news||{}).headlines||[]).forEach(function(n){add(b.date,"要闻",n.title,[n.what,n.facts,n.why].join(" "),(n.sources&&n.sources[0]||{}).url);});
-      ((s.news||{}).watchlist||[]).forEach(function(w){add(b.date,"观察",w.topic,w.update,(w.sources&&w.sources[0]||{}).url);});
-      ((s.invest||{}).markets||[]).forEach(function(m){add(b.date,"投资",m.name,[m.fact,m.analysis,m.risk].join(" "));});
-      var a=s.academic; if(a)add(b.date,"学术",a.topic,[a.method,a.relation,a.actions].join(" "));
+      ((s.news||{}).headlines||[]).forEach(function(n,i){add({kind:"brief",sec:"要闻",date:b.date,emb:"h|"+b.date+"#"+i,title:n.title,text:[n.what,n.facts,n.why].join(" "),url:(n.sources&&n.sources[0]||{}).url,threadId:n.threadId});});
+      ((s.news||{}).watchlist||[]).forEach(function(w){add({kind:"brief",sec:"观察",date:b.date,title:w.topic,text:w.update,url:(w.sources&&w.sources[0]||{}).url});});
+      ((s.invest||{}).markets||[]).forEach(function(m){add({kind:"brief",sec:"投资",date:b.date,title:m.name,text:[m.fact,m.analysis,m.risk].join(" ")});});
+      var a=s.academic; if(a)add({kind:"brief",sec:"学术",date:b.date,title:a.topic,text:[a.intro,a.method,a.relation,a.actions].join(" ")});
     });
-    (D.papers||[]).forEach(function(p){add(p.firstSeen,"论文",p.title,[p.authors,p.venue,p.note,p.topic].join(" "),p.url);});
-    (D.threads||[]).forEach(function(t){(t.history||[]).forEach(function(e){add(e.date,"线索",t.title,e.note,(e.sources&&e.sources[0]||{}).url);});});
-    var res=docs.filter(function(d){return (d.title+" "+d.text).toLowerCase().indexOf(q)>=0;});
+    (D.papers||[]).forEach(function(p){add({kind:"paper",sec:"论文",date:p.firstSeen,emb:"p|"+p.id,title:p.title,meta:[p.authors,p.venue,(p.tags||[]).join(" "),p.topic,p.doi,p.year].join(" "),text:p.note||"",ref:p});});
+    (D.threads||[]).forEach(function(t){add({kind:"thread",sec:"线索",date:lastDate(t),emb:"t|"+t.id,title:t.title,meta:[t.id,t.status,t.nextWatch].join(" "),text:(t.history||[]).map(function(e){return e.note;}).join(" "),ref:t});});
+    if(LIB)LIB.items.forEach(function(z){ if(z.archiveId)return; add({kind:"zotero",sec:"Zotero 库",date:z.added,emb:"z|"+z.key,title:z.title,meta:[z.authors,z.venue,z.year,z.doi,z.tags.join(" "),z.collections.join(" ")].join(" "),text:z.abstract||"",ref:z}); });
+    return docs;
+  }
+  var SDOCS=null;
+  function zCard(z){
+    var links=[]; links.push('<a href="zotero://select/library/items/'+esc(z.key)+'" title="在本机的 Zotero 中定位（需要安装 Zotero）">在 Zotero 中打开</a>');
+    if(z.pdf)links.push('<a href="zotero://open-pdf/library/items/'+esc(z.pdf)+'" title="用本机 Zotero 打开 PDF">打开本地 PDF</a>');
+    if(z.doi)links.push('<a href="https://doi.org/'+esc(z.doi)+'" target="_blank" rel="noopener">DOI</a>'); else if(z.url)links.push('<a href="'+esc(z.url)+'" target="_blank" rel="noopener">原文 ↗</a>');
+    var ab=z.abstract||"";
+    return '<div class="paper"><div class="pt"><span class="venue" style="background:#fff3e0;color:#9a4d00">Zotero 库 · 未推送</span>'+(z.venue?'<span class="venue preprint">'+esc(z.venue)+'</span>':'')+hl(z.title)+'</div>'+
+      '<div class="meta" style="color:var(--ink2)"><b>发表</b> '+esc(z.date||z.year||"—")+'<span style="color:var(--line)"> ｜ </span><b>加入 Zotero</b> '+esc(z.added||"—")+(z.pdf?'<span style="color:var(--line)"> ｜ </span>有 PDF':'')+'</div>'+
+      '<div class="meta">'+esc(z.authors||"")+'</div>'+
+      (ab?'<div class="row" style="font-size:14px">'+hl(ab.slice(0,320))+(ab.length>320?'<details style="display:inline"><summary style="display:inline;cursor:pointer;color:var(--accent)"> …展开摘要</summary>'+hl(ab.slice(320))+'</details>':'')+'</div>':'<div class="row note">（Zotero 中没有摘要）</div>')+
+      ((z.tags.length||z.collections.length)?'<div class="row" style="font-size:12px">'+z.collections.slice(0,4).map(function(c){return '<span class="chip c-academic">'+esc(c)+'</span>';}).join("")+z.tags.slice(0,8).map(function(t){return '<span class="chip c-watch">'+esc(String(t).split("/").pop().split(" ")[0])+'</span>';}).join("")+'</div>':'')+
+      '<div class="links">'+links.join("")+'</div></div>';
+  }
+  function threadHit(t){
+    var hs=(t.history||[]).slice().sort(function(a,b){return a.date<b.date?1:-1;}), last=hs[0]||{};
+    return '<div class="card"><h3>'+catChip(t)+'<span style="color:var(--muted);font-size:12px">'+esc(t.id)+'</span> '+hl(t.title)+' <a href="#" data-thread="'+esc(t.id)+'" style="font-size:12px">查看时间线</a></h3><div class="row"><span class="status">'+esc(t.status||"")+'</span></div>'+(last.note?'<div class="row"><b>'+esc(last.date)+'</b>'+hl(last.note)+'</div>':'')+pmLine(t.id)+'</div>';
+  }
+  function briefHit(d){
+    var txt=d.text||"";
+    return '<div class="card"><div class="row"><span class="chip" style="background:var(--line2);color:var(--ink2)">'+esc(d.sec)+'</span><a href="#'+esc(d.date)+'" data-godate="'+esc(d.date)+'" style="font-weight:600">'+esc(d.date)+'</a></div>'+
+      (d.title?'<h3 style="margin:6px 0 4px">'+hl(d.title)+'</h3>':"")+
+      '<div class="row">'+hl(txt.slice(0,420))+(txt.length>420?'<details style="display:inline"><summary style="display:inline;cursor:pointer;color:var(--accent)"> …展开</summary>'+hl(txt.slice(420))+'</details>':'')+'</div>'+
+      (d.url?'<div class="src"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">前往信源 ↗</a></div>':"")+'</div>';
+  }
+  function loadModel(){
+    if(SR.model||SR.loading)return; SR.loading=true; SR.err=""; render();
+    import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5").then(function(T){
+      return T.pipeline("feature-extraction", EMB.model, {dtype:"q8"});
+    }).then(function(p){SR.model=p; SR.loading=false; render();}).catch(function(e){SR.loading=false; SR.sem=false; SR.err="语义模型加载失败："+(e&&e.message||e); render();});
+  }
+  function semScores(){
+    if(!SR.sem||!SR.model||!EMB)return null;
+    if(SR.qfor!==state.q){ var q=state.q; SR.qfor=q; SR.qvec=null; SR.model((EMB.prefix&&EMB.prefix.query||"query: ")+q,{pooling:"mean",normalize:true}).then(function(o){ if(SR.qfor===q){SR.qvec=Array.from(o.data); render();} }); return "pending"; }
+    if(!SR.qvec)return "pending";
+    var V=embVec(), d=EMB.dim, out={}; EMB.rows.forEach(function(r,i){ var s=0, o=i*d; for(var j=0;j<d;j++)s+=SR.qvec[j]*V[o+j]; out[r[0]+"|"+r[1]]=s/127; });
+    return out;
+  }
+  function renderSearch(){
+    SDOCS=SDOCS||searchDocs();
+    var q=state.q.toLowerCase().trim(), toks=tokens(q), sem=semScores(), res=[];
+    var semTop=null;
+    if(sem&&sem!=="pending"){ var arr=Object.keys(sem).map(function(k){return sem[k];}).sort(function(a,b){return b-a;}); semTop={hi:arr[0], cut:arr[Math.min(80,arr.length-1)]}; }
+    SDOCS.forEach(function(d){
+      if(SR.scope!=="all"&&SR.scope!==d.kind)return;
+      var k=kwScore(d,q,toks), sv=(sem&&sem!=="pending"&&d.emb)?sem[d.emb]:null, s=0, why=[];
+      if(k>0){why.push("关键词");}
+      var semOK=semTop&&sv!=null&&sv>=semTop.cut;
+      if(semOK)why.push("语义");
+      if(!k&&!semOK)return;
+      s=Math.min(k,16)/16*0.5+(semOK?(sv-semTop.cut)/Math.max(1e-6,semTop.hi-semTop.cut):0)*0.5+(k>0&&semOK?0.15:0);
+      res.push({d:d,s:s,why:why,sv:sv});
+    });
+    res.sort(function(a,b){return b.s-a.s||String(b.d.date||"").localeCompare(String(a.d.date||""));});
+    var counts={all:0,paper:0,zotero:0,thread:0,brief:0}; SDOCS.forEach(function(d){}); res.forEach(function(r){counts.all++; counts[r.d.kind]++;});
     var h=secH("检索结果","Search — “"+esc(state.q)+"” · "+res.length+" 条");
-    if(!res.length){h+='<div class="empty">未找到匹配「'+esc(state.q)+'」的内容。</div>';}
-    res.forEach(function(d){
-      h+='<div class="card"><div class="row"><span class="chip c-academic" style="background:var(--line2);color:var(--ink2)">'+esc(d.sec)+'</span><b style="color:var(--muted);font-weight:600">'+esc(d.date)+'</b></div>'+
-         (d.title?'<h3 style="margin:6px 0 4px">'+hl(d.title)+'</h3>':"")+
-         '<div class="row">'+hl((d.text||"").slice(0,260))+((d.text||"").length>260?"…":"")+'</div>'+
-         (d.url?'<div class="src"><a href="'+esc(d.url)+'" target="_blank" rel="noopener">前往信源 ↗</a></div>':"")+'</div>';
+    h+='<div class="fin-tools"><span class="lab">范围</span>'+[["all","全部"],["paper","存档论文"],["zotero","Zotero 库（未推送）"],["thread","线索"],["brief","简报内容"]].map(function(x){return '<button class="rbtn'+(SR.scope===x[0]?" on":"")+'" data-sscope="'+x[0]+'">'+x[1]+(SR.scope==="all"||SR.scope===x[0]?' <span style="opacity:.7">'+(counts[x[0]]||0)+'</span>':'')+'</button>';}).join("")+
+      (EMB?'<button class="rbtn'+(SR.sem?" on":"")+'" data-ssem="1" style="margin-left:10px" title="用多语言语义模型按意思匹配；首次使用需下载约 118 MB 模型，之后浏览器会缓存">🧠 语义检索'+(SR.loading?'（模型加载中…）':SR.sem&&sem==="pending"?'（计算中…）':'')+'</button>':'')+'</div>';
+    h+='<div class="note" style="margin:-6px 0 12px">关键词检索支持多个词（空格分隔）、英文拼写差一个字母的模糊匹配、中文部分匹配。'+(EMB?'打开「语义检索」后按意思匹配，中文问题也能找到英文论文；结果标注匹配方式。':'')+(LIB?' Zotero 库共 '+LIB.count+' 条，其中 '+(LIB.count-LIB.archiveLinked)+' 条未在简报中推送过；「在 Zotero 中打开」「打开本地 PDF」只在装有 Zotero 的电脑上有效。':'')+(SR.err?'<br><span class="up">'+esc(SR.err)+'</span>':'')+'</div>';
+    if(!res.length){h+='<div class="empty">未找到匹配「'+esc(state.q)+'」的内容'+(EMB&&!SR.sem?'，可以试试打开「语义检索」':'')+'。</div>';}
+    var shown=res.slice(0,120);
+    shown.forEach(function(r){
+      var d=r.d, tag='<div class="note" style="margin:0 0 -6px 2px">'+r.why.map(function(w){return '<span class="chip '+(w==="语义"?"c-market":"c-fact")+'">'+w+'</span>';}).join("")+(r.sv!=null&&r.why.indexOf("语义")>=0?' 相似度 '+r.sv.toFixed(3):'')+'</div>';
+      if(d.kind==="paper")h+=tag+paperCard(d.ref,false,null);
+      else if(d.kind==="zotero")h+=tag+zCard(d.ref);
+      else if(d.kind==="thread")h+=tag+threadHit(d.ref);
+      else h+=tag+briefHit(d);
     });
+    if(res.length>shown.length)h+='<div class="note">只显示前 '+shown.length+' 条，请加关键词或切换范围缩小结果。</div>';
     document.getElementById("view").innerHTML=h;
   }
 
@@ -794,6 +883,9 @@
       var nb=k?document.querySelector('[data-fkey="'+(window.CSS&&CSS.escape?CSS.escape(k):k)+'"][data-frange="'+n+'"]'):null;
       if(nb)window.scrollTo(0,window.scrollY+nb.getBoundingClientRect().top-top); else window.scrollTo(0,y);
       return;}
+    var sc=e.target.closest("[data-sscope]"); if(sc){SR.scope=sc.dataset.sscope; render(); return;}
+    var sm=e.target.closest("[data-ssem]"); if(sm){SR.sem=!SR.sem; if(SR.sem)loadModel(); render(); return;}
+    var gd=e.target.closest("[data-godate]"); if(gd){e.preventDefault(); goDate(gd.dataset.godate); return;}
     var fb=e.target.closest("[data-f]");
     if(fb){var pr=fb.dataset.f.split("|"); F[pr[0]][pr[1]]=pr.slice(2).join("|"); render(); return;}
     var fr=e.target.closest("[data-freset]");
